@@ -26,7 +26,14 @@
 
 使用方式：
 - `GeminiOps.getStatus()` → 返回 `{status: 'idle'|'ready'|'loading', label, disabled}`
-- `GeminiOps.waitForComplete(timeout, interval)` → 返回 Promise，状态脱离 `loading` 后 resolve
+- `GeminiOps.pollStatus()` → 返回 `{status, label, pageVisible, ts}`，**毫秒级返回**，供调用端分段轮询
+
+### CDP 保活轮询（重要）
+
+**禁止**在页面内做长 Promise 等待（旧版 `waitForComplete` 已移除）。
+
+正确做法：调用端每 8~10 秒 evaluate 一次 `GeminiOps.pollStatus()`，自行累计耗时并判断超时。
+这确保 CDP WebSocket 通道持续有消息流量，避免被网关判定空闲而断开连接。
 
 ## 4) 生图结果获取
 

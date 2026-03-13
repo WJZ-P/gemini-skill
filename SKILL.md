@@ -31,7 +31,7 @@ Gemini 页面的操作按钮（`.send-button-container` 内）通过 `aria-label
 | 发送 / Send | `ready` | 输入框有内容，可发送 |
 | 停止 / Stop | `loading` | 已发送，正在生成回答 |
 
-可通过 `GeminiOps.getStatus()` 获取当前状态，通过 `GeminiOps.waitForComplete()` 轮询等待生成完毕。
+可通过 `GeminiOps.getStatus()` 获取当前状态，通过 `GeminiOps.pollStatus()` 分段轮询等待生成完毕。
 
 ### A. 文本问答
 1. 打开 `https://gemini.google.com`。
@@ -39,7 +39,7 @@ Gemini 页面的操作按钮（`.send-button-container` 内）通过 `aria-label
 3. 新建会话：`click('newChatBtn')`，确保干净上下文。
 4. 选择最强可用模型（优先 Gemini 3.1 Pro）。
 5. 将用户问题原样输入并发送。
-6. 调用 `waitForComplete()` 等待状态从 `loading` 变回 `idle`。
+6. **分段轮询等待**（见下方"CDP 保活轮询策略"）。
 7. 等待完整输出，提炼后回传（必要时附原文要点）。
 
 ### B. 生图流程
@@ -48,11 +48,27 @@ Gemini 页面的操作按钮（`.send-button-container` 内）通过 `aria-label
 3. 选择最强可用模型（优先 Gemini 3.1 Pro）。
 4. 将用户提示词原样输入。
 5. 发送后立即通知用户：正在绘图中。
-6. 调用 `waitForComplete()` 等待生成完毕（生图默认超时 120s）。
+6. **分段轮询等待**（见下方"CDP 保活轮询策略"，生图超时上限 120s）。
 7. 结果出现后：
    - 优先用"下载原图"按钮获取原图。
    - 若无下载按钮或失败，可对图片右键另存（通常是标清图）。
 8. 把图片返回用户；若有多张，按顺序全部回传。
+
+## CDP 保活轮询策略
+
+> **核心原则**：绝不在页面内做长时间 Promise 等待。每次 `evaluate` 必须毫秒级返回，由调用端控制循环。
+
+生图/问答发送后，按以下方式等待结果：
+
+1. 每隔 **8~10 秒**调用一次 `GeminiOps.pollStatus()`。
+2. 该函数立即返回 `{status, label, pageVisible, ts}`。
+3. 调用端根据 `status` 判断：
+   - `loading` → 继续等待，累计已耗时。
+   - `idle` → 生成完毕，进入结果获取阶段。
+   - `unknown` → 页面可能异常，做一次 snapshot 兜底排查。
+4. 累计耗时超过上限（文本 60s / 生图 120s）→ 走超时回退逻辑。
+
+**为什么这样做**：OpenClaw 通过 CDP（Chrome DevTools Protocol）WebSocket 控制浏览器。若长时间（>30s）无消息往来，网关/代理可能判定连接空闲并断开。分段短轮询保证 CDP 通道始终有心跳流量。
 
 ## 失败回退
 

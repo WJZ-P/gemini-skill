@@ -81,25 +81,15 @@
     return {status:'idle',label,disabled};
   }
 
-  function waitForComplete(timeout,interval){
-    timeout=timeout||120000;
-    interval=interval||2000;
-    return new Promise(function(resolve){
-      var elapsed=0;
-      var timer=setInterval(function(){
-        elapsed+=interval;
-        var s=getStatus();
-        if(s.status!=='loading'){
-          clearInterval(timer);
-          resolve({ok:true,status:s.status,elapsed});
-          return;
-        }
-        if(elapsed>=timeout){
-          clearInterval(timer);
-          resolve({ok:false,status:'timeout',elapsed});
-        }
-      },interval);
-    });
+  /* ── 保活式轮询 ──
+   * 不在页面内做长 Promise 等待（会导致 CDP 连接因长时间无消息被网关判定空闲断开）。
+   * 改为：调用端每 8-10s evaluate 一次 GeminiOps.pollStatus()，立即拿到结果。
+   * 调用端自行累计耗时并判断超时。
+   */
+  function pollStatus(){
+    var s=getStatus();
+    // 顺便返回页面可见性，帮助调用端判断 tab 是否还活着
+    return {status:s.status, label:s.label, pageVisible:!document.hidden, ts:Date.now()};
   }
 
   function probe(){
@@ -113,5 +103,5 @@
     };
   }
 
-  window.GeminiOps = {probe, click, fillPrompt, getStatus, waitForComplete, selectors:S, version:'0.3.0'};
+  window.GeminiOps = {probe, click, fillPrompt, getStatus, pollStatus, selectors:S, version:'0.4.0'};
 })();
