@@ -29,6 +29,13 @@ const SELECTORS = {
     'button:has-text("Gemini")',
     '[role="button"][aria-haspopup="menu"]',
   ],
+  tempChatBtn: [
+    '[data-test-id="temp-chat-button"]',          // 最稳定：测试专属属性
+    'button[aria-label="临时对话"]',                // 中文 aria-label
+    'button[aria-label*="temporary" i]',           // 英文 aria-label 兜底
+    'button.temp-chat-button',                     // class 名兜底
+    'button[mattooltip="临时对话"]',                // Angular Material tooltip 属性
+  ],
 };
 
 /**
@@ -47,14 +54,15 @@ export function createOps(page) {
 
     /**
      * 探测页面各元素是否就位
-     * @returns {Promise<{promptInput: boolean, actionBtn: boolean, newChatBtn: boolean, modelBtn: boolean, status: object}>}
+     * @returns {Promise<{promptInput: boolean, actionBtn: boolean, newChatBtn: boolean, modelBtn: boolean, tempChatBtn: boolean, status: object}>}
      */
     async probe() {
-      const [promptInput, actionBtn, newChatBtn, modelBtn] = await Promise.all([
+      const [promptInput, actionBtn, newChatBtn, modelBtn, tempChatBtn] = await Promise.all([
         op.locate(SELECTORS.promptInput),
         op.locate(SELECTORS.actionBtn),
         op.locate(SELECTORS.newChatBtn),
         op.locate(SELECTORS.modelBtn),
+        op.locate(SELECTORS.tempChatBtn),
       ]);
       const status = await this.getStatus();
       return {
@@ -62,13 +70,14 @@ export function createOps(page) {
         actionBtn: actionBtn.found,
         newChatBtn: newChatBtn.found,
         modelBtn: modelBtn.found,
+        tempChatBtn: tempChatBtn.found,
         status,
       };
     },
 
     /**
      * 点击指定按钮
-     * @param {'actionBtn'|'newChatBtn'|'modelBtn'} key
+     * @param {'actionBtn'|'newChatBtn'|'modelBtn'|'tempChatBtn'} key
      */
     async click(key) {
       const sels = SELECTORS[key];
@@ -76,6 +85,39 @@ export function createOps(page) {
         return { ok: false, error: `unknown_key: ${key}` };
       }
       return op.click(sels);
+    },
+
+    /**
+     * 进入临时会话模式
+     *
+     * 点击页面上的"临时会话"按钮（data-test-id="temp-chat-button"），
+     * 然后等待页面完成导航 / 刷新，确保后续操作在临时会话中进行。
+     *
+     * @param {object} [opts]
+     * @param {number} [opts.timeout=15000] - 等待页面导航完成的超时时间（ms）
+     * @returns {Promise<{ok: boolean, error?: string}>}
+     */
+    async clickTempChat(opts = {}) {
+      const { timeout = 15_000 } = opts;
+
+      const clickResult = await this.click('tempChatBtn');
+      if (!clickResult.ok) {
+        return { ok: false, error: 'temp_chat_btn_not_found' };
+      }
+
+      // 等待页面导航 / 内容刷新完成
+      try {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout });
+      } catch {
+        // 部分场景下按钮不触发 navigation 而是 SPA 内部路由，静默跳过
+        console.log('[ops] temp chat: navigation wait timed out, continuing (may be SPA routing)');
+      }
+
+      // 再给一点时间让 UI 稳定
+      await sleep(1000);
+
+      console.log('[ops] entered temp chat mode');
+      return { ok: true };
     },
 
     /**
