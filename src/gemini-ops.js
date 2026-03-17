@@ -386,15 +386,61 @@ export function createOps(page) {
     },
 
     /**
-     * 获取最新生成的图片信息
+     * 获取本次会话中所有已加载的图片
+     *
+     * 选择器逻辑：
+     *   - img.image.loaded — 历史已加载图片（不带 animate）
+     *   - img.image.animate.loaded — 最新生成的图片（带入场动画）
+     *   两者都匹配 img.image.loaded，所以用它拿全部。
+     *
+     * @returns {Promise<{ok: boolean, images: Array<{src: string, alt: string, width: number, height: number, isNew: boolean, index: number}>, total: number, newCount: number, error?: string}>}
      */
-    async getLatestImage() {
+    async getAllImages() {
       return op.query(() => {
         const imgs = [...document.querySelectorAll('img.image.loaded')];
         if (!imgs.length) {
+          return { ok: false, images: [], total: 0, newCount: 0, error: 'no_loaded_images' };
+        }
+
+        const images = imgs.map((img, i) => ({
+          src: img.src || '',
+          alt: img.alt || '',
+          width: img.naturalWidth || 0,
+          height: img.naturalHeight || 0,
+          isNew: img.classList.contains('animate'),
+          index: i,
+        }));
+
+        const newCount = images.filter(i => i.isNew).length;
+        return { ok: true, images, total: images.length, newCount };
+      });
+    },
+
+    /**
+     * 获取最新生成的图片信息
+     *
+     * 优先查找带 animate class 的图片（刚生成的），
+     * 如果没有则回退到最后一张已加载图片。
+     *
+     * @returns {Promise<{ok: boolean, src?: string, alt?: string, width?: number, height?: number, isNew?: boolean, hasDownloadBtn?: boolean, error?: string}>}
+     */
+    async getLatestImage() {
+      return op.query(() => {
+        // 优先：最新生成的图片（带 animate）
+        const newImgs = [...document.querySelectorAll('img.image.animate.loaded')];
+        // 回退：所有已加载图片
+        const allImgs = [...document.querySelectorAll('img.image.loaded')];
+
+        if (!allImgs.length) {
           return { ok: false, error: 'no_loaded_images' };
         }
-        const img = imgs[imgs.length - 1];
+
+        // 取最新生成的最后一张，没有则取全部的最后一张
+        const img = newImgs.length > 0
+          ? newImgs[newImgs.length - 1]
+          : allImgs[allImgs.length - 1];
+        const isNew = newImgs.length > 0 && newImgs[newImgs.length - 1] === img;
+
         // 查找下载按钮
         let container = img;
         while (container && container !== document.body) {
@@ -412,6 +458,7 @@ export function createOps(page) {
           alt: img.alt || '',
           width: img.naturalWidth || 0,
           height: img.naturalHeight || 0,
+          isNew,
           hasDownloadBtn: !!dlBtn,
         };
       });
