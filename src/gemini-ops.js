@@ -441,6 +441,19 @@ export function createOps(page) {
     },
 
     /**
+     * 检查生成的图片是否加载完成
+     *
+     * 通过检测页面中 div.loader.animate 元素判断：
+     *   存在 → 图片还在加载中
+     *   不存在 → 加载完毕
+     *
+     * @returns {Promise<{loaded: boolean}>}
+     */
+    async checkImageLoaded() {
+      return isImageLoaded(op);
+    },
+
+    /**
      * 获取本次会话中所有已加载的图片
      *
      * 选择器逻辑：
@@ -736,7 +749,7 @@ export function createOps(page) {
         const loadTimeout = 10_000;
         const loadInterval = 250;
         const loadStart = Date.now();
-
+        await sleep(500); //  短暂等待 UI 响应
         while (Date.now() - loadStart < loadTimeout) {
           const loading = await op.query(() => {
             const el = document.querySelector('.image-preview.loading');
@@ -886,6 +899,22 @@ function isSidebarExpanded(op) {
     const width = el.getBoundingClientRect().width;
     return { ok: true, expanded: width >= 100, width };
   }, SELECTORS.sidebarContainer);
+}
+
+/**
+ * 检查生成的图片是否加载完成
+ *
+ * 判断依据：页面中是否存在 div.loader.animate 元素。
+ * 存在 → 图片还在加载；不存在 → 加载完毕。
+ *
+ * @param {ReturnType<typeof createOperator>} op
+ * @returns {Promise<{loaded: boolean}>}
+ */
+function isImageLoaded(op) {
+  return op.query(() => {
+    const loader = document.querySelector('div.loader.animate');
+    return { loaded: !loader };
+  });
 }
 
 function sleep(ms) {

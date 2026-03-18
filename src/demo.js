@@ -20,7 +20,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGeminiSession, disconnect } from './index.js';
 
-const prompt = 'Gemini你好！请你调用画图模型给我画一张洛天依的可爱Q版表情包~';
+const prompt = 'Gemini你好！请你仿造这个风格，给我生成更多表情包吧！来一张玩手机中。。。';
 
 // ── Demo 专用：杀掉所有 Chromium 系浏览器进程 ──
 function killAllBrowserProcesses() {
@@ -130,7 +130,7 @@ async function main() {
     // 4. 上传图片
     console.log('\n[4] 上传图片...');
 
-    const uploadResult = await ops.uploadImage('./gemini-image/tianyi.jpg');
+    const uploadResult = await ops.uploadImage('./gemini-image/miku_fighting.jpg');
     if (uploadResult.ok) {
       console.log(`[4] ✅ 图片上传完成 (${uploadResult.elapsed}ms)`);
       if (uploadResult.warning) console.warn(`[4] ⚠ ${uploadResult.warning}`);
@@ -148,18 +148,29 @@ async function main() {
     });
     console.log('result:', JSON.stringify(result, null, 2));
 
-    // 6. 获取最新图片并保存到本地
+    // 6. 等待图片加载完成
     if (result.ok) {
-      console.log('\n[6] 查找最新生成的图片...');
+      console.log('\n[6] 等待图片加载完成...');
+      const imgLoadStart = Date.now();
+      while (Date.now() - imgLoadStart < 30_000) {
+        const { loaded } = await ops.checkImageLoaded();
+        if (loaded) break;
+        console.log('  图片加载中...');
+        await sleep(500);
+      }
+      console.log(`[6] 图片加载完成 (${Date.now() - imgLoadStart}ms)`);
+
+      // 7. 获取最新图片并保存到本地
+      console.log('\n[7] 查找最新生成的图片...');
 
       const imgInfo = await ops.getLatestImage();
       console.log('imgInfo:', JSON.stringify(imgInfo, null, 2));
 
       if (imgInfo.ok && imgInfo.src) {
-        console.log(`[6] 找到图片 (${imgInfo.width}x${imgInfo.height}, isNew=${imgInfo.isNew})`);
+        console.log(`[7] 找到图片 (${imgInfo.width}x${imgInfo.height}, isNew=${imgInfo.isNew})`);
 
         // 提取 base64 数据
-        console.log(`[6] 提取图片数据 (src=${imgInfo.src})...`);
+        console.log(`[7] 提取图片数据 (src=${imgInfo.src})...`);
         const b64Result = await ops.extractImageBase64(imgInfo.src);
 
         if (b64Result.ok && b64Result.dataUrl) {
@@ -179,15 +190,15 @@ async function main() {
             const filepath = join(outputDir, filename);
 
             writeFileSync(filepath, buffer);
-            console.log(`[6] ✅ 图片已保存: ${filepath} (${(buffer.length / 1024).toFixed(1)} KB, method=${b64Result.method})`);
+            console.log(`[7] ✅ 图片已保存: ${filepath} (${(buffer.length / 1024).toFixed(1)} KB, method=${b64Result.method})`);
           } else {
-            console.warn('[6] ⚠ dataUrl 格式无法解析');
+            console.warn('[7] ⚠ dataUrl 格式无法解析');
           }
         } else {
-          console.warn(`[6] ⚠ 提取图片数据失败: ${b64Result.error || 'unknown'}`);
+          console.warn(`[7] ⚠ 提取图片数据失败: ${b64Result.error || 'unknown'}`);
         }
       } else {
-        console.log('[6] 未找到图片（可能本次回答不含图片）');
+        console.log('[7] 未找到图片（可能本次回答不含图片）');
       }
     }
 
