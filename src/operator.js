@@ -122,7 +122,7 @@ export function createOperator(page) {
      * @returns {Promise<{ok: boolean, selector?: string, x?: number, y?: number, error?: string}>}
      */
     async click(selectors, opts = {}) {
-      const { jitter = 3, delayBeforeClick = 50, clickDuration = 80 } = opts;
+      const { jitter = 10, delayBeforeClick = 50, clickDuration = 80 } = opts;
 
       const sels = Array.isArray(selectors) ? selectors : [selectors];
       const loc = await locate(sels);

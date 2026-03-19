@@ -650,6 +650,28 @@ export function createOps(page) {
     // ─── 高层组合操作 ───
 
     /**
+     * 刷新当前页面
+     *
+     * 适用于页面卡住、状态异常等场景。
+     * 刷新后会等待页面重新加载完成（waitUntil: networkidle2）。
+     *
+     * @param {object} [options]
+     * @param {number} [options.timeout=30000] - 等待页面加载的超时时间（ms）
+     * @returns {Promise<{ok: boolean, elapsed?: number, error?: string, detail?: string}>}
+     */
+    async reloadPage({ timeout = 30_000 } = {}) {
+      try {
+        const start = Date.now();
+        await page.reload({ waitUntil: 'networkidle2', timeout });
+        const elapsed = Date.now() - start;
+        console.log(`[ops] 页面刷新完成 (${elapsed}ms)`);
+        return { ok: true, elapsed };
+      } catch (e) {
+        return { ok: false, error: 'reload_failed', detail: e.message };
+      }
+    },
+
+    /**
      * 上传图片到 Gemini 输入框
      *
      * 流程：
