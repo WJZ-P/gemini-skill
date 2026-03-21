@@ -783,9 +783,9 @@ export function createOps(page) {
 
       // 4. hover 到图片上，触发工具栏显示
       await page.mouse.move(imgInfo.x, imgInfo.y);
-      await sleep(250);
+      await sleep(500);
 
-      // 5. 点击"下载完整尺寸"按钮
+      // 5. 点击"下载完整尺寸"按钮（带重试：hover 可能需要更长时间触发工具栏）
       const btnSelector = 'button[data-test-id="download-enhanced-image-button"]';
       const clickResult = await op.click(btnSelector);
 

@@ -18,7 +18,7 @@ const server = new McpServer({
 server.registerTool(
   "gemini_generate_image",
   {
-    description: "调用后台的 Gemini 浏览器会话生成高质量图片",
+    description: "调用后台的 Gemini 浏览器会话生成高质量图片。注意：生图过程较慢（通常 60~120 秒），请耐心等待",
     inputSchema: {
       prompt: z.string().describe("图片的详细描述词"),
       newSession: z.boolean().default(false).describe(
@@ -27,9 +27,15 @@ server.registerTool(
       referenceImages: z.array(z.string()).default([]).describe(
         "参考图片的本地文件路径数组，例如 [\"/path/to/ref1.png\", \"/path/to/ref2.jpg\"]。图片会在发送 prompt 前上传到 Gemini 输入框"
       ),
+      fullSize: z.boolean().default(false).describe(
+        "是否下载完整尺寸原图。true= 通过 CDP 拦截下载高清大图; false= 提取页面预览图"
+      ),
+      timeout: z.number().default(180000).describe(
+        "等待 Gemini 生成回复的超时时间（毫秒），默认 180000（3 分钟）。生图较慢，建议不低于 120000"
+      ),
     },
   },
-  async ({ prompt, newSession, referenceImages }) => {
+  async ({ prompt, newSession, referenceImages, fullSize, timeout }) => {
     try {
       const { ops } = await createGeminiSession();
 
@@ -42,25 +48,21 @@ server.registerTool(
           isError: true,
         };
       }
-      // 需要先处理新建会话（如果需要），因为 generateImage 内部的 newChat 会在上传之后才执行
-      if (newSession) {
+
+      // 确保是 pro 模型（生图需要 Pro）
+      await ops.ensureModelPro();
+
+      // 如果有参考图，需要先新建会话再上传，最后 generateImage 不再新建
+      if (referenceImages.length > 0) {
+        if (newSession) {
           await ops.click('newChatBtn');
           await sleep(250);
-      }
-
-      // 确保是pro会话
-      const modelCheck = await ops.checkModel();
-      if (!modelCheck.ok || modelCheck.model !== 'pro') {
-        await ops.switchToModel('pro');
-        console.error(`[mcp] 已切换至 pro 模型`);
-      }
-
-      // 如果有参考图，先上传
-      if (referenceImages.length > 0) {
+        }
         for (const imgPath of referenceImages) {
           console.error(`[mcp] 正在上传参考图: ${imgPath}`);
           const uploadResult = await ops.uploadImage(imgPath);
           if (!uploadResult.ok) {
+            disconnect();
             return {
               content: [{ type: "text", text: `参考图上传失败: ${imgPath}\n错误: ${uploadResult.error}` }],
               isError: true,
@@ -70,9 +72,10 @@ server.registerTool(
         console.error(`[mcp] ${referenceImages.length} 张参考图上传完成`);
       }
 
-      // 如果上传了参考图且已手动新建会话，则 generateImage 内部不再新建
+      // 如果有参考图，已在上面手动新建会话，generateImage 内部不再新建
+      // 如果没有参考图，newSession 直接传给 generateImage 内部处理
       const needNewChat = referenceImages.length > 0 ? false : newSession;
-      const result = await ops.generateImage(prompt, { newChat: needNewChat, fullSize });
+      const result = await ops.generateImage(prompt, { newChat: needNewChat, fullSize, timeout });
 
       // 执行完毕立刻断开，交还给 Daemon 倒计时
       disconnect();
@@ -94,7 +97,7 @@ server.registerTool(
         };
       }
 
-      // 低分辨率模式：base64 提取，写入本地文件
+      // base64 提取模式：写入本地文件，只返回文件路径（不返回 base64 数据，避免 MCP 协议校验问题）
       const base64Data = result.dataUrl.split(',')[1];
       const mimeMatch = result.dataUrl.match(/^data:(image\/\w+);/);
       const ext = mimeMatch ? mimeMatch[1].split('/')[1] : 'png';
@@ -109,11 +112,6 @@ server.registerTool(
       return {
         content: [
           { type: "text", text: `图片生成成功！已保存至: ${filePath}` },
-          {
-            type: "image",
-            data: base64Data,
-            mimeType: mimeMatch ? mimeMatch[1] : "image/png",
-          },
         ],
       };
     } catch (err) {
@@ -339,7 +337,6 @@ server.registerTool(
       return {
         content: [
           { type: "text", text: `图片提取成功，已保存至: ${filePath}` },
-          { type: "image", data: base64Data, mimeType: mimeMatch ? mimeMatch[1] : "image/png" },
         ],
       };
     } catch (err) {
@@ -368,7 +365,8 @@ server.registerTool(
 
       if (!result.ok) {
         let msg = `下载完整尺寸图片失败: ${result.error}`;
-        if (result.total != null) msg += `（共 ${result.total} 张图片）`;
+        if (result.detail) msg += `\n${result.detail}`;
+        if (result.total != null) msg += `\n（共 ${result.total} 张图片）`;
         if (result.error === 'index_out_of_range') msg += `，请求的索引: ${result.requestedIndex}`;
         return { content: [{ type: "text", text: msg }], isError: true };
       }
