@@ -1,5 +1,7 @@
 # Gemini Skill
 
+[English](./README.en.md) | 中文
+
 通过 CDP（Chrome DevTools Protocol）操控 Gemini 网页版（gemini.google.com），实现 AI 生图、对话、图片提取等自动化操作。
 
 ## ✨ 功能
