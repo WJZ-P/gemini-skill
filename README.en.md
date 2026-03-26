@@ -54,7 +54,7 @@
 
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV1z64y1b7H4">
+  <a href="https://www.bilibili.com/video/BV1e54y1z7XM">
     <img src="markdown/home.png" alt="Pure Blue">
   </a>
 </p>
