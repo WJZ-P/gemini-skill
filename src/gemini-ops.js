@@ -537,86 +537,134 @@ export function createOps(page) {
     },
 
     /**
-     * 提取指定图片的 Base64 数据
-     *
-     * 降级策略：
-     *   1. Canvas — 同步提取，最快（但跨域图片会被 taint）【已注释，留作参考】
-     *   2. 页面 fetch — 异步读取 blob（受 CORS 限制，Google 图片通常不可用）【已注释，留作参考】
-     *   3. CDP loadNetworkResource — 通过 CDP 协议用浏览器网络栈下载，绕过 CORS
-     *
-     * @param {string} url - 目标图片的 src URL
-     * @returns {Promise<{ok: boolean, dataUrl?: string, method?: 'cdp', error?: string}>}
+    * 提取指定图片的 Base64 数据
+    *
+    * 策略（根据 URL 类型自动选择）：
+    *   A. blob: URL →
+    *      A1. Canvas drawImage（最可靠：只要 img 还在 DOM 上就能画，不受 blob revoke 影响）
+    *      A2. 页面内 fetch + FileReader（Canvas 被 taint 时兜底）
+    *   B. 非 blob URL → CDP loadNetworkResource（通过 CDP 协议绕过 CORS）
+    *
+    * @param {string} url - 目标图片的 src URL
+    * @returns {Promise<{ok: boolean, dataUrl?: string, method?: 'canvas'|'fetch'|'cdp', error?: string}>}
      */
-    async extractImageBase64(url) {
-      if (!url) {
-        console.warn('[extractImageBase64] ❌ 未提供 url 参数');
-        return { ok: false, error: 'missing_url' };
-      }
-      console.log(`[extractImageBase64] 🔍 开始提取, url=${url.slice(0, 120)}...`);
+   async extractImageBase64(url) {
+     if (!url) {
+       console.warn('[extractImageBase64] ❌ 未提供 url 参数');
+       return { ok: false, error: 'missing_url' };
+     }
+     console.log(`[extractImageBase64] 🔍 开始提取, url=${url.slice(0, 120)}...`);
 
-      //  无论是fetch还是canvas提取都会失败，这里留作学习，走CDP的url获取兜底
+     const isBlob = url.startsWith('blob:');
 
-      // // ── 阶段 1: Canvas 提取 ──
-      // const canvasResult = await op.query((targetUrl) => {
-      //   const imgs = [...document.querySelectorAll('img.image.loaded')];
-      //   const img = imgs.find(i => i.src === targetUrl);
-      //   if (!img) {
-      //     return { ok: false, error: 'img_not_found_by_url', searched: imgs.length };
-      //   }
-      //   const w = img.naturalWidth || img.width;
-      //   const h = img.naturalHeight || img.height;
+     // ── 策略 A: blob: URL → Canvas 绘制优先，fetch 兜底 ──
+     // blob: URL 是页面自己创建的，img 已渲染在 DOM 上，Canvas drawImage 不会被 taint。
+     // 如果 blob 已被 revoke，fetch 会失败，但 Canvas 只要 img 还在 DOM 上就能画。
+     if (isBlob) {
+       // ── A1: Canvas 提取（最可靠：只要图片还显示在页面上就能提取） ──
+       console.log('[extractImageBase64] 🎨 检测到 blob: URL，尝试 Canvas 提取...');
+       const canvasResult = await op.query((targetUrl) => {
+         const imgs = [...document.querySelectorAll('img.image.loaded')];
+         const img = imgs.find(i => i.src === targetUrl);
+         if (!img) {
+           // 如果精确匹配失败，回退到最后一张
+           const fallback = imgs[imgs.length - 1];
+           if (!fallback) return { ok: false, error: 'no_loaded_images', searched: 0 };
+           // 用最后一张图片
+           const w = fallback.naturalWidth || fallback.width;
+           const h = fallback.naturalHeight || fallback.height;
+           try {
+             const canvas = document.createElement('canvas');
+             canvas.width = w;
+             canvas.height = h;
+             canvas.getContext('2d').drawImage(fallback, 0, 0);
+             const dataUrl = canvas.toDataURL('image/png');
+             return { ok: true, dataUrl, width: w, height: h, method: 'canvas', note: 'fallback_to_last' };
+           } catch (e) {
+             return { ok: false, error: 'canvas_tainted', detail: e.message || String(e), width: w, height: h };
+           }
+         }
+         const w = img.naturalWidth || img.width;
+         const h = img.naturalHeight || img.height;
+         try {
+           const canvas = document.createElement('canvas');
+           canvas.width = w;
+           canvas.height = h;
+           canvas.getContext('2d').drawImage(img, 0, 0);
+           const dataUrl = canvas.toDataURL('image/png');
+           return { ok: true, dataUrl, width: w, height: h, method: 'canvas' };
+         } catch (e) {
+           return { ok: false, error: 'canvas_tainted', detail: e.message || String(e), width: w, height: h, needFetch: true };
+         }
+       }, url);
 
-      //   try {
-      //     const canvas = document.createElement('canvas');
-      //     canvas.width = w;
-      //     canvas.height = h;
-      //     canvas.getContext('2d').drawImage(img, 0, 0);
-      //     const dataUrl = canvas.toDataURL('image/png');
-      //     return { ok: true, dataUrl, width: w, height: h, method: 'canvas' };
-      //   } catch (e) {
-      //     return { ok: false, needFallback: true, src: img.src, width: w, height: h, canvasError: e.message || String(e) };
-      //   }
-      // }, url);
+       if (canvasResult.ok) {
+         console.log(`[extractImageBase64] ✅ Canvas 提取成功 (${canvasResult.width}x${canvasResult.height}${canvasResult.note ? ', ' + canvasResult.note : ''})`);
 
-      // if (canvasResult.ok) {
-      //   console.log(`[extractImageBase64] ✅ Canvas 提取成功 (${canvasResult.width}x${canvasResult.height})`);
-      //   return canvasResult;
-      // }
+         // 去水印处理
+         const wmResult = await removeWatermarkFromDataUrl(canvasResult.dataUrl);
+         if (wmResult.ok && !wmResult.skipped) {
+           console.log(`[extractImageBase64] 🍌 水印已移除 (${wmResult.width}×${wmResult.height}, logo=${wmResult.logoSize}px)`);
+           return { ok: true, dataUrl: wmResult.dataUrl, method: 'canvas' };
+         } else if (wmResult.skipped) {
+           console.log(`[extractImageBase64] 跳过去水印: ${wmResult.reason}`);
+         } else {
+           console.warn(`[extractImageBase64] 去水印失败（不影响提取结果）: ${wmResult.error}`);
+         }
 
-      // if (!canvasResult.needFallback) {
-      //   console.warn(`[extractImageBase64] ❌ 页面中未找到匹配的 img 元素 (已扫描 ${canvasResult.searched || 0} 张)`);
-      //   return canvasResult;
-      // }
+         return { ok: true, dataUrl: canvasResult.dataUrl, method: 'canvas' };
+       }
 
-      // console.log(`[extractImageBase64] ⚠ Canvas 被污染 (${canvasResult.canvasError})，尝试页面 fetch...`);
+       console.warn(`[extractImageBase64] ⚠ Canvas 提取失败: ${canvasResult.error}${canvasResult.detail ? ' — ' + canvasResult.detail : ''}`);
 
-      // // ── 阶段 2: 页面 fetch（可能被 CORS 拦截） ──
-      // const fetchResult = await page.evaluate(async (src) => {
-      //   try {
-      //     const r = await fetch(src);
-      //     if (!r.ok) return { ok: false, error: `fetch_status_${r.status}` };
-      //     const blob = await r.blob();
-      //     const mime = blob.type || 'image/png';
-      //     return await new Promise((resolve) => {
-      //       const reader = new FileReader();
-      //       reader.onloadend = () => resolve({ ok: true, dataUrl: reader.result, mime });
-      //       reader.onerror = () => resolve({ ok: false, error: 'filereader_error' });
-      //       reader.readAsDataURL(blob);
-      //     });
-      //   } catch (err) {
-      //     return { ok: false, error: 'fetch_failed', detail: err.message || String(err) };
-      //   }
-      // }, canvasResult.src);
+       // ── A2: 页面 fetch 兜底（blob 未被 revoke 时有效） ──
+       if (canvasResult.needFetch || canvasResult.error === 'canvas_tainted') {
+         console.log('[extractImageBase64] 📦 Canvas 被污染，尝试页面内 fetch 兜底...');
+         try {
+           const fetchResult = await op.query(async (src) => {
+             try {
+               const r = await fetch(src);
+               if (!r.ok) return { ok: false, error: `fetch_status_${r.status}` };
+               const blob = await r.blob();
+               const mime = blob.type || 'image/png';
+               return await new Promise((resolve) => {
+                 const reader = new FileReader();
+                 reader.onloadend = () => resolve({ ok: true, dataUrl: reader.result, mime, method: 'fetch' });
+                 reader.onerror = () => resolve({ ok: false, error: 'filereader_error' });
+                 reader.readAsDataURL(blob);
+               });
+             } catch (err) {
+               return { ok: false, error: 'fetch_failed', detail: err.message || String(err) };
+             }
+           }, url);
 
-      // if (fetchResult.ok) {
-      //   console.log(`[extractImageBase64] ✅ 页面 fetch 提取成功 (${canvasResult.width}x${canvasResult.height})`);
-      //   return { ...fetchResult, width: canvasResult.width, height: canvasResult.height, method: 'fetch' };
-      // }
+           if (fetchResult.ok) {
+             console.log(`[extractImageBase64] ✅ 页面 fetch 提取成功 (mime=${fetchResult.mime})`);
 
-      // console.log(`[extractImageBase64] ⚠ 页面 fetch 失败 (${fetchResult.error}${fetchResult.detail ? ' — ' + fetchResult.detail : ''})，尝试 CDP 缓存读取...`);
+             // 去水印处理
+             const wmResult = await removeWatermarkFromDataUrl(fetchResult.dataUrl);
+             if (wmResult.ok && !wmResult.skipped) {
+               console.log(`[extractImageBase64] 🍌 水印已移除 (${wmResult.width}×${wmResult.height}, logo=${wmResult.logoSize}px)`);
+               return { ok: true, dataUrl: wmResult.dataUrl, method: 'fetch' };
+             } else if (wmResult.skipped) {
+               console.log(`[extractImageBase64] 跳过去水印: ${wmResult.reason}`);
+             } else {
+               console.warn(`[extractImageBase64] 去水印失败（不影响提取结果）: ${wmResult.error}`);
+             }
 
-      // ── CDP Network.loadNetworkResource（通过 CDP 发请求，绕过 CORS） ──
-      try {
+             return { ok: true, dataUrl: fetchResult.dataUrl, method: 'fetch' };
+           }
+           console.warn(`[extractImageBase64] ⚠ 页面 fetch 也失败: ${fetchResult.error}`);
+         } catch (err) {
+           console.warn(`[extractImageBase64] ❌ 页面 fetch 异常: ${err.message || String(err)}`);
+         }
+       }
+
+       return { ok: false, error: canvasResult.error || 'blob_extract_failed', detail: canvasResult.detail };
+     }
+
+     // ── 策略 B: 非 blob URL → CDP Network.loadNetworkResource（绕过 CORS） ──
+     try {
         const client = page._client();
         const frameId = page.mainFrame()._id;
 

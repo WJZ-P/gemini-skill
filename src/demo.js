@@ -14,7 +14,10 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGeminiSession, disconnect } from './index.js';
 
-const prompt = 'Gemini你好！请你仿造这个风格，给我生成更多表情包吧！来一张玩手机中。。。';
+const prompt = 'Gemini你好！给我生成一张类似的图片';
+
+/** 是否下载完整尺寸原图（true=CDP拦截下载高清大图，false=base64提取页面预览图） */
+const FULL_SIZE = false;
 
 /** 异步等待 */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -64,7 +67,7 @@ async function main() {
     // 4. 上传图片
     console.log('\n[4] 上传图片...');
 
-    const uploadResult = await ops.uploadImage('./gemini-image/miku_fighting.jpg');
+    const uploadResult = await ops.uploadImage('./gemini-image/test.png');
     if (uploadResult.ok) {
       console.log(`[4] ✅ 图片上传完成 (${uploadResult.elapsed}ms)`);
       if (uploadResult.warning) console.warn(`[4] ⚠ ${uploadResult.warning}`);
@@ -94,15 +97,19 @@ async function main() {
       }
       console.log(`[6] 图片加载完成 (${Date.now() - imgLoadStart}ms)`);
 
-      // 7. 下载完整尺寸的图片（通过 CDP 拦截下载到 outputDir）
-      console.log('\n[7] 下载完整尺寸图片...');
-      const dlResult = await ops.downloadFullSizeImage();
-      if (dlResult.ok) {
-        console.log(`[7] ✅ 完整尺寸图片已保存: ${dlResult.filePath} (原始文件名: ${dlResult.suggestedFilename})`);
-      } else {
-        console.warn(`[7] ⚠ 完整尺寸下载失败: ${dlResult.error}，回退到 base64 提取...`);
+      // 7. 获取图片
+      console.log(`\n[7] 获取图片（模式: ${FULL_SIZE ? '完整尺寸原图' : 'base64 预览图'}）...`);
 
-        // 回退：用 base64 提取
+      if (FULL_SIZE) {
+        // ── 完整尺寸原图：通过 CDP 拦截下载到 outputDir ──
+        const dlResult = await ops.downloadFullSizeImage();
+        if (dlResult.ok) {
+          console.log(`[7] ✅ 完整尺寸图片已保存: ${dlResult.filePath} (原始文件名: ${dlResult.suggestedFilename})`);
+        } else {
+          console.warn(`[7] ⚠ 完整尺寸下载失败: ${dlResult.error}`);
+        }
+      } else {
+        // ── base64 提取页面预览图 ──
         const imgInfo = await ops.getLatestImage();
         if (imgInfo.ok && imgInfo.src) {
           console.log(`[7] 找到图片 (${imgInfo.width}x${imgInfo.height}, isNew=${imgInfo.isNew})`);
@@ -123,7 +130,7 @@ async function main() {
               const filepath = join(outputDir, filename);
 
               writeFileSync(filepath, buffer);
-              console.log(`[7] ✅ 图片已保存(base64回退): ${filepath} (${(buffer.length / 1024).toFixed(1)} KB, method=${b64Result.method})`);
+              console.log(`[7] ✅ 图片已保存(base64): ${filepath} (${(buffer.length / 1024).toFixed(1)} KB, method=${b64Result.method})`);
             } else {
               console.warn('[7] ⚠ dataUrl 格式无法解析');
             }

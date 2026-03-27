@@ -83,7 +83,7 @@ function detectWatermarkConfig(width, height) {
   if (width > 1024 && height > 1024) {
     return { logoSize: 96, marginRight: 64, marginBottom: 64 };
   }
-  return { logoSize: 48, marginRight: 32, marginBottom: 32 };
+  return { logoSize: 48, marginRight: 16, marginBottom: 16 };
 }
 
 /**
