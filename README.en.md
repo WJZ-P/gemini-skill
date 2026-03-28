@@ -276,6 +276,7 @@ disconnect();
 | `gemini_get_images` | List all images in the current session (metadata only) | — |
 | `gemini_extract_image` | Extract image base64 data and save locally | `imageUrl` |
 | `gemini_download_full_size_image` | Download full-size high-res image | `index` |
+| `gemini_share_latest_image` | Create a public share link and return `https://gemini.google.com/share/...` | `index`, `timeout`, `copyToClipboard`, `closeDialog` |
 
 ### Text Responses
 

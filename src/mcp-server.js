@@ -417,6 +417,51 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  "gemini_share_latest_image",
+  {
+    description: `为当前会话中的图片创建 Gemini 公共分享链接并直接返回该链接。
+
+默认分享最新一张图片，也可通过 index 指定历史图片（从0开始，从旧到新排列）。
+工具会自动点开 Share image，等待 Gemini 生成 https://gemini.google.com/share/... 链接，并在可能时点击 Copy link。`,
+    inputSchema: {
+      index: z.number().int().min(0).optional().describe(
+        "图片索引，从0开始，按从旧到新排列。不传则分享最新一张"
+      ),
+      timeout: z.number().default(30000).describe(
+        "等待分享链接生成的超时时间（毫秒），默认 30000"
+      ),
+      copyToClipboard: z.boolean().default(true).describe(
+        "是否在生成链接后点击 Copy link，默认 true"
+      ),
+      closeDialog: z.boolean().default(true).describe(
+        "成功后是否关闭分享弹窗，默认 true"
+      ),
+    },
+  },
+  async ({ index, timeout, copyToClipboard, closeDialog }) => {
+    try {
+      const { ops } = await createGeminiSession();
+      const result = await ops.shareLatestImage({ index, timeout, copyToClipboard, closeDialog });
+      disconnect();
+
+      if (!result.ok) {
+        let msg = `创建图片分享链接失败: ${result.error}`;
+        if (result.detail) msg += `\n${result.detail}`;
+        if (result.total != null) msg += `\n（共 ${result.total} 张图片）`;
+        if (result.error === 'index_out_of_range') msg += `，请求的索引: ${result.requestedIndex}`;
+        return { content: [{ type: "text", text: msg }], isError: true };
+      }
+
+      return {
+        content: [{ type: "text", text: result.link }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `执行崩溃: ${err.message}` }], isError: true };
+    }
+  }
+);
+
 // ─── 文字回复获取 ───
 
 server.registerTool(

@@ -91,6 +91,38 @@ const SELECTORS = {
     '[data-test-id="uploader-images-files-button-advanced"]', // 测试专属属性
     'images-files-uploader',                                  // 标签名兜底
   ],
+  /** 图片分享按钮（hover 图片后出现） */
+  shareImageBtn: [
+    'button[data-test-id="share-button"]',
+    'button[aria-label*="Share image" i]',
+    'button[aria-label*="分享图片" i]',
+  ],
+  /** 分享弹窗容器 */
+  shareDialog: [
+    'mat-dialog-container',
+    '[role="dialog"]',
+    '.cdk-dialog-container',
+    '.mat-mdc-dialog-container',
+  ],
+  /** 分享弹窗中的公开链接 */
+  shareDialogLink: [
+    'a[data-test-id="created-share-link"]',
+    'a.link-url',
+  ],
+  /** 分享弹窗中的复制按钮 */
+  shareDialogCopyBtn: [
+    'button[data-test-id="copy-link"]',
+    'button[aria-label*="Copy public link" i]',
+    'button[aria-label*="Link copied" i]',
+    'button[aria-label*="复制公开链接" i]',
+    'button[aria-label*="已复制链接" i]',
+  ],
+  /** 分享弹窗关闭按钮 */
+  shareDialogCloseBtn: [
+    'button[data-test-id="close-dialog"]',
+    'button[aria-label="Close"]',
+    'button[aria-label="关闭"]',
+  ],
 };
 
 /**
@@ -929,6 +961,377 @@ export function createOps(page) {
       }
     },
 
+    /**
+     * 为当前会话中的图片创建 Gemini 公开分享链接
+     *
+     * 流程：
+     *   1. 关闭可能残留的旧分享弹窗
+     *   2. 将目标图片滚动到视口中央并 hover，触发图片工具栏
+     *   3. 点击 Share image
+     *   4. 等待 Gemini 生成 share 链接
+     *   5. 读取链接；若复制按钮可用则顺手点击复制
+     *   6. 按需关闭弹窗
+     *
+     * @param {object} [options]
+     * @param {number} [options.index] - 图片索引（从0开始，从旧到新），不传则分享最新一张
+     * @param {number} [options.timeout=30000] - 等待 share 链接生成的超时时间（ms）
+     * @param {boolean} [options.copyToClipboard=true] - 是否点击“Copy link”
+     * @param {boolean} [options.closeDialog=true] - 完成后是否关闭分享弹窗
+     * @returns {Promise<{ok: boolean, link?: string, copiedToClipboard?: boolean, dialogClosed?: boolean, index?: number, total?: number, src?: string, error?: string, detail?: string}>}
+     */
+    async shareLatestImage({ index, timeout = 30_000, copyToClipboard = true, closeDialog = true } = {}) {
+      const staleDialog = await this.closeShareDialog({ timeout: 2_000 });
+      if (!staleDialog.ok) return staleDialog;
+
+      const imgInfo = await op.query((targetIndex) => {
+        const imgs = [...document.querySelectorAll('img.image.loaded')];
+        if (!imgs.length) return { ok: false, error: 'no_loaded_images', total: 0 };
+
+        const i = targetIndex == null ? imgs.length - 1 : targetIndex;
+        if (i < 0 || i >= imgs.length) {
+          return { ok: false, error: 'index_out_of_range', total: imgs.length, requestedIndex: i };
+        }
+
+        const img = imgs[i];
+        img.scrollIntoView({ behavior: 'instant', block: 'center' });
+        const rect = img.getBoundingClientRect();
+        return {
+          ok: true,
+          index: i,
+          total: imgs.length,
+          src: img.src || '',
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }, index);
+
+      if (!imgInfo.ok) return imgInfo;
+
+      await sleep(500);
+
+      let shareBtnInfo = null;
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await page.mouse.move(imgInfo.x, imgInfo.y);
+        await sleep(400);
+
+        shareBtnInfo = await op.query((targetIndex, selectors) => {
+          const imgs = [...document.querySelectorAll('img.image.loaded')];
+          const i = targetIndex == null ? imgs.length - 1 : targetIndex;
+          const img = imgs[i];
+          if (!img) return { ok: false, error: 'image_not_found' };
+
+          const container = img.closest('.image-container') || img.parentElement?.closest('.image-container');
+          if (!container) return { ok: false, error: 'image_container_not_found' };
+
+          let btn = null;
+          for (const sel of selectors) {
+            try {
+              const candidates = [...container.querySelectorAll(sel)];
+              btn = candidates.find((el) => {
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                return rect.width > 0 && rect.height > 0
+                  && style.display !== 'none'
+                  && style.visibility !== 'hidden'
+                  && style.opacity !== '0';
+              }) || null;
+            } catch { /* skip bad selector */ }
+            if (btn) break;
+          }
+
+          if (!btn) return { ok: false, error: 'share_btn_not_found' };
+
+          const rect = btn.getBoundingClientRect();
+          return {
+            ok: true,
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        }, imgInfo.index, SELECTORS.shareImageBtn);
+
+        if (shareBtnInfo.ok) break;
+        await sleep(400);
+      }
+
+      if (!shareBtnInfo?.ok) {
+        return {
+          ok: false,
+          error: 'share_btn_not_found',
+          src: imgInfo.src,
+          index: imgInfo.index,
+          total: imgInfo.total,
+        };
+      }
+
+      await page.mouse.move(shareBtnInfo.x, shareBtnInfo.y);
+      await sleep(120);
+      await page.mouse.down();
+      await sleep(80);
+      await page.mouse.up();
+
+      const dialogReady = await op.waitFor((selectors) => {
+        const dialogs = [];
+        const seen = new Set();
+
+        for (const sel of selectors) {
+          try {
+            for (const el of document.querySelectorAll(sel)) {
+              if (seen.has(el)) continue;
+              seen.add(el);
+              dialogs.push(el);
+            }
+          } catch { /* skip */ }
+        }
+
+        return dialogs.some((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0
+            && rect.height > 0
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && style.opacity !== '0'
+            && (!el.classList.contains('mdc-dialog') || el.classList.contains('mdc-dialog--open'));
+        });
+      }, { timeout: Math.min(timeout, 10_000), interval: 250, args: [SELECTORS.shareDialog] });
+
+      if (!dialogReady.ok) {
+        return {
+          ok: false,
+          error: 'share_dialog_not_found',
+          src: imgInfo.src,
+          index: imgInfo.index,
+          total: imgInfo.total,
+        };
+      }
+
+      const deadline = Date.now() + timeout;
+      let shareState = null;
+
+      while (Date.now() < deadline) {
+        shareState = await op.query((dialogSelectors, linkSelectors, copySelectors, closeSelectors) => {
+          const dialogs = [];
+          const seen = new Set();
+
+          for (const sel of dialogSelectors) {
+            try {
+              for (const el of document.querySelectorAll(sel)) {
+                if (seen.has(el)) continue;
+                seen.add(el);
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                const visible = rect.width > 0
+                  && rect.height > 0
+                  && style.display !== 'none'
+                  && style.visibility !== 'hidden'
+                  && style.opacity !== '0'
+                  && (!el.classList.contains('mdc-dialog') || el.classList.contains('mdc-dialog--open'));
+                if (visible) dialogs.push(el);
+              }
+            } catch { /* skip */ }
+          }
+
+          const dialog = dialogs.at(-1) || null;
+          if (!dialog) return { ok: false, error: 'share_dialog_not_found' };
+
+          const findFirst = (selectors) => {
+            for (const sel of selectors) {
+              try {
+                const el = dialog.querySelector(sel);
+                if (el) return el;
+              } catch { /* skip */ }
+            }
+            return null;
+          };
+
+          const linkEl = findFirst(linkSelectors);
+          const copyBtn = findFirst(copySelectors);
+          const closeBtn = findFirst(closeSelectors);
+          const text = (dialog.innerText || '').trim();
+
+          const copyRect = copyBtn ? copyBtn.getBoundingClientRect() : null;
+          const closeRect = closeBtn ? closeBtn.getBoundingClientRect() : null;
+
+          return {
+            ok: true,
+            href: linkEl?.href || '',
+            text,
+            copyButton: copyBtn ? {
+              disabled: !!copyBtn.disabled || copyBtn.classList.contains('disabled'),
+              ariaLabel: copyBtn.getAttribute('aria-label') || '',
+              text: (copyBtn.innerText || copyBtn.textContent || '').trim(),
+              x: copyRect.left + copyRect.width / 2,
+              y: copyRect.top + copyRect.height / 2,
+            } : null,
+            closeButton: closeBtn ? {
+              x: closeRect.left + closeRect.width / 2,
+              y: closeRect.top + closeRect.height / 2,
+            } : null,
+          };
+        }, SELECTORS.shareDialog, SELECTORS.shareDialogLink, SELECTORS.shareDialogCopyBtn, SELECTORS.shareDialogCloseBtn);
+
+        if (!shareState.ok) {
+          await sleep(300);
+          continue;
+        }
+
+        const shareLink = normalizeShareLink(shareState.href) || extractShareLinkFromText(shareState.text);
+        if (shareLink) {
+          let copiedToClipboard = false;
+
+          if (copyToClipboard && shareState.copyButton) {
+            const btnState = `${shareState.copyButton.ariaLabel} ${shareState.copyButton.text}`.toLowerCase();
+            if (shareState.copyButton.disabled || btnState.includes('link copied') || btnState.includes('已复制链接')) {
+              copiedToClipboard = true;
+            } else {
+              await page.mouse.move(shareState.copyButton.x, shareState.copyButton.y);
+              await sleep(100);
+              await page.mouse.down();
+              await sleep(60);
+              await page.mouse.up();
+              copiedToClipboard = true;
+              await sleep(250);
+            }
+          }
+
+          let dialogClosed = false;
+          if (closeDialog) {
+            const closeResult = await this.closeShareDialog({ timeout: 5_000 });
+            if (!closeResult.ok) return closeResult;
+            dialogClosed = closeResult.closed;
+          }
+
+          return {
+            ok: true,
+            link: shareLink,
+            copiedToClipboard,
+            dialogClosed,
+            src: imgInfo.src,
+            index: imgInfo.index,
+            total: imgInfo.total,
+          };
+        }
+
+        await sleep(500);
+      }
+
+      return {
+        ok: false,
+        error: 'share_link_timeout',
+        detail: shareState?.text?.slice(0, 200) || '',
+        src: imgInfo.src,
+        index: imgInfo.index,
+        total: imgInfo.total,
+      };
+    },
+
+    /**
+     * 关闭分享弹窗（如果存在）
+     *
+     * @param {object} [options]
+     * @param {number} [options.timeout=5000] - 等待弹窗消失的超时时间（ms）
+     * @returns {Promise<{ok: boolean, hadDialog?: boolean, closed?: boolean, error?: string}>}
+     */
+    async closeShareDialog({ timeout = 5_000 } = {}) {
+      let closedAny = false;
+
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        const closeInfo = await op.query((dialogSelectors, closeSelectors) => {
+          const dialogs = [];
+          const seen = new Set();
+
+          for (const sel of dialogSelectors) {
+            try {
+              for (const el of document.querySelectorAll(sel)) {
+                if (seen.has(el)) continue;
+                seen.add(el);
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                const visible = rect.width > 0
+                  && rect.height > 0
+                  && style.display !== 'none'
+                  && style.visibility !== 'hidden'
+                  && style.opacity !== '0'
+                  && (!el.classList.contains('mdc-dialog') || el.classList.contains('mdc-dialog--open'));
+                if (visible) dialogs.push(el);
+              }
+            } catch { /* skip */ }
+          }
+
+          const dialog = dialogs.at(-1) || null;
+          if (!dialog) {
+            return { ok: true, hadDialog: false, closed: false, openCount: 0 };
+          }
+
+          let btn = null;
+          for (const sel of closeSelectors) {
+            try {
+              const el = dialog.querySelector(sel);
+              if (el) {
+                btn = el;
+                break;
+              }
+            } catch { /* skip */ }
+          }
+
+          if (!btn) return { ok: false, error: 'share_dialog_close_btn_not_found' };
+
+          const rect = btn.getBoundingClientRect();
+          return {
+            ok: true,
+            hadDialog: true,
+            openCount: dialogs.length,
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        }, SELECTORS.shareDialog, SELECTORS.shareDialogCloseBtn);
+
+        if (!closeInfo.ok) return closeInfo;
+        if (!closeInfo.hadDialog) {
+          return { ok: true, hadDialog: closedAny, closed: closedAny };
+        }
+
+        await page.mouse.move(closeInfo.x, closeInfo.y);
+        await sleep(100);
+        await page.mouse.down();
+        await sleep(60);
+        await page.mouse.up();
+
+        const waitClose = await op.waitFor((selectors, previousCount) => {
+          const dialogs = [];
+          const seen = new Set();
+
+          for (const sel of selectors) {
+            try {
+              for (const el of document.querySelectorAll(sel)) {
+                if (seen.has(el)) continue;
+                seen.add(el);
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                const visible = rect.width > 0
+                  && rect.height > 0
+                  && style.display !== 'none'
+                  && style.visibility !== 'hidden'
+                  && style.opacity !== '0'
+                  && (!el.classList.contains('mdc-dialog') || el.classList.contains('mdc-dialog--open'));
+                if (visible) dialogs.push(el);
+              }
+            } catch { /* skip */ }
+          }
+
+          return dialogs.length < previousCount;
+        }, { timeout, interval: 200, args: [SELECTORS.shareDialog, closeInfo.openCount] });
+
+        if (!waitClose.ok) {
+          return { ok: false, error: 'share_dialog_close_timeout' };
+        }
+
+        closedAny = true;
+      }
+
+      return { ok: false, error: 'share_dialog_close_timeout' };
+    },
+
     // ─── 高层组合操作 ───
 
     /**
@@ -1234,4 +1637,40 @@ function isLoggedIn(op) {
   });
 }
 
+/**
+ * 规范化 Gemini 分享链接
+ *
+ * @param {string} raw
+ * @returns {string}
+ */
+function normalizeShareLink(raw) {
+  if (!raw) return '';
 
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  if (/^https:\/\/gemini\.google\.com\/share\/[A-Za-z0-9_-]+$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^gemini\.google\.com\/share\/[A-Za-z0-9_-]+$/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+
+  return '';
+}
+
+/**
+ * 从文本中提取 Gemini 分享链接
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function extractShareLinkFromText(text) {
+  if (!text) return '';
+
+  const match = text.match(/(?:https?:\/\/)?gemini\.google\.com\/share\/[A-Za-z0-9_-]+/i);
+  if (!match) return '';
+
+  return normalizeShareLink(match[0]);
+}

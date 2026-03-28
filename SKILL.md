@@ -84,6 +84,7 @@ MCP 工具调用（尤其是生图、等待回复等）可能耗时较长（60~1
 | `gemini_get_images` | 获取会话中所有已加载图片的元信息 | 无 |
 | `gemini_extract_image` | 提取指定图片的 base64 并保存到本地 | `imageUrl`（从 get_images 获取） |
 | `gemini_download_full_size_image` | 下载完整尺寸的高清图片，默认最新一张，可指定索引 | `index`（可选，从0开始，从旧到新） |
+| `gemini_share_latest_image` | 为图片创建公开分享链接并直接返回链接，默认最新一张 | `index`（可选），`timeout`，`copyToClipboard`，`closeDialog` |
 
 **文字回复提取：**
 
@@ -116,6 +117,10 @@ MCP 工具调用（尤其是生图、等待回复等）可能耗时较长（60~1
 
 **快速生图（一步到位）：**
 1. 调用 `gemini_generate_image`，传入 prompt → 返回本地图片路径
+
+**生图并拿分享链接：**
+1. 调用 `gemini_generate_image` 生成图片
+2. 调用 `gemini_share_latest_image` 返回公开链接
 
 **灵活组合（细粒度控制）：**
 1. `gemini_new_chat` — 新建会话
