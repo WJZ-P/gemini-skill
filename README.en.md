@@ -168,31 +168,46 @@ npm install
 
 ## ⚙️ Configuration
 
-All configuration is done via environment variables or a `.env` file. Create a `.env` file in the project root:
-
-```env
-# Browser executable path (auto-detects Chrome/Edge/Chromium if unset)
-# BROWSER_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
-
-# CDP remote debugging port (default: 40821)
-# BROWSER_DEBUG_PORT=40821
-
-# Headless mode (default: false — keep it off for first-time login)
-# BROWSER_HEADLESS=false
-
-# Image output directory (default: ./gemini-image)
-# OUTPUT_DIR=./gemini-image
-
-# Daemon HTTP port (default: 40225)
-# DAEMON_PORT=40225
-
-# Daemon idle timeout in ms (default: 30 minutes)
-# DAEMON_TTL_MS=1800000
-```
-
-`.env.development` is also supported (takes priority over `.env`).
+All configuration is done via environment variables or `.env` files. A `.env` template is provided in the project root — you can edit it directly.
 
 **Priority order:** `process.env` > `.env.development` > `.env` > code defaults
+
+> `.env.development` is git-ignored, making it ideal for local/private settings (e.g. browser path).
+
+### Browser Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BROWSER_PATH` | Auto-detect | Path to the browser executable (Chrome / Edge / Chromium). If unset, the system's installed browsers are detected automatically by priority |
+| `BROWSER_DEBUG_PORT` | `40821` | CDP remote debugging port. Multiple skills (e.g. douyin-upload-mcp-skill) sharing the same port will share the same browser instance |
+| `BROWSER_HEADLESS` | `false` | Headless mode. Keep it `false` for first-time use so you can log in to your Google account |
+| `BROWSER_USER_DATA_DIR` | Auto-resolve | Browser user data directory for persisting login sessions, cookies, etc. Auto-resolves to `~/.wjz_browser_data` → browser default dir |
+| `BROWSER_PROTOCOL_TIMEOUT` | `60000` | CDP protocol timeout (ms). Increase for long-running operations like image generation |
+
+### Daemon Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAEMON_PORT` | `40225` | Daemon HTTP service port |
+| `DAEMON_TTL_MS` | `1800000` | Idle timeout (ms), default 30 minutes. After timeout, the browser is closed and the Daemon exits. It will auto-respawn on the next call |
+
+### Other Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OUTPUT_DIR` | `./gemini-image` | Image output directory |
+
+### Reusing OpenClaw's Browser Session
+
+[OpenClaw](https://github.com/)'s default CDP port is **18800**. If you want to reuse OpenClaw's existing browser session, set `BROWSER_DEBUG_PORT` to `18800`:
+
+```env
+BROWSER_DEBUG_PORT=18800
+```
+
+**However, please note**: OpenClaw's browser session **does not include the Stealth anti-detection plugin**, making it less resistant to bot detection compared to browser instances managed by this project. This project uses `puppeteer-extra-plugin-stealth` to provide comprehensive anti-detection measures (hiding the webdriver flag, simulating real browser fingerprints, etc.), which better avoids automated detection by websites.
+
+**Recommendation**: Unless you have specific needs, use the default port `40821` and let the project manage its own browser instance for the best anti-detection results.
 
 <br>
 

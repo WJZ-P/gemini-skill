@@ -168,31 +168,46 @@ npm install
 
 ## ⚙️ 配置
 
-所有配置通过环境变量或 `.env` 文件设置。在项目根目录创建 `.env` 文件：
-
-```env
-# 浏览器路径（不设则自动检测 Chrome/Edge/Chromium）
-# BROWSER_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
-
-# CDP 远程调试端口（默认 40821）
-# BROWSER_DEBUG_PORT=40821
-
-# 是否无头模式（默认 false，首次使用建议关闭以便登录）
-# BROWSER_HEADLESS=false
-
-# 图片输出目录（默认 ./gemini-image）
-# OUTPUT_DIR=./gemini-image
-
-# Daemon HTTP 端口（默认 40225）
-# DAEMON_PORT=40225
-
-# Daemon 闲置超时（毫秒，默认 30 分钟）
-# DAEMON_TTL_MS=1800000
-```
-
-也支持 `.env.development` 文件（优先级高于 `.env`）。
+所有配置通过环境变量或 `.env` 文件设置。项目根目录已提供 `.env` 模板，可直接修改。
 
 **配置优先级：** `process.env` > `.env.development` > `.env` > 代码默认值
+
+> `.env.development` 不会被 git 追踪，适合存放本地私有配置（如浏览器路径）。
+
+### 浏览器配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `BROWSER_PATH` | 自动检测 | 浏览器可执行文件路径，支持 Chrome / Edge / Chromium。不设则自动按优先级检测系统已安装的浏览器 |
+| `BROWSER_DEBUG_PORT` | `40821` | CDP 远程调试端口。多个 skill（如 douyin-upload-mcp-skill）共享同一端口即共享同一浏览器实例 |
+| `BROWSER_HEADLESS` | `false` | 是否无头模式。首次使用建议关闭（`false`），方便登录 Google 账号 |
+| `BROWSER_USER_DATA_DIR` | 自动解析 | 浏览器用户数据目录，保存登录态、cookies 等。不设则自动解析：`~/.wjz_browser_data` → 浏览器默认目录 |
+| `BROWSER_PROTOCOL_TIMEOUT` | `60000` | CDP 协议超时时间（毫秒）。生图等长操作可适当增大 |
+
+### Daemon 配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DAEMON_PORT` | `40225` | Daemon HTTP 服务端口 |
+| `DAEMON_TTL_MS` | `1800000` | 闲置超时时间（毫秒），默认 30 分钟。超时后自动关闭浏览器并退出 Daemon，下次调用时自动重新拉起 |
+
+### 其他配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `OUTPUT_DIR` | `./gemini-image` | 图片输出目录 |
+
+### 关于 OpenClaw 浏览器复用
+
+[OpenClaw](https://github.com/) 的默认 CDP 端口是 **18800**。如果你希望复用 OpenClaw 已启动的浏览器会话，可以将 `BROWSER_DEBUG_PORT` 改为 `18800`：
+
+```env
+BROWSER_DEBUG_PORT=18800
+```
+
+**但请注意**：OpenClaw 自带的浏览器会话**没有集成 Stealth 反爬插件**，在反检测能力上不如本项目自行维护的浏览器实例。本项目使用 `puppeteer-extra-plugin-stealth` 提供了完整的反爬保护（隐藏 webdriver 标记、模拟真实浏览器指纹等），能更好地规避网站的自动化检测。
+
+**建议**：除非有特殊需求，推荐使用默认端口 `40821`，让项目自行管理浏览器实例以获得最佳的反爬效果。
 
 <br>
 
