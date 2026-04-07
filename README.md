@@ -291,6 +291,7 @@ disconnect();
 | `gemini_get_images` | 获取会话中所有图片元信息 | 无 |
 | `gemini_extract_image` | 提取图片 base64 并保存本地 | `imageUrl` |
 | `gemini_download_full_size_image` | 下载完整尺寸高清图片 | `index` |
+| `gemini_share_latest_image` | 为图片创建公开分享链接并返回 `https://gemini.google.com/share/...` | `index`, `timeout`, `copyToClipboard`, `closeDialog` |
 
 ### 文字回复
 
