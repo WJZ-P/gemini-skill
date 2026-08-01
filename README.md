@@ -139,13 +139,16 @@
 ## ☁️ 懒得配环境？让 gemini-skill 跑在云上
 
 <p align="center">
-  <a href="https://bloome.im/agent/join/5ic86aCp?ref=bvsEWoFx">
-    <img src="./markdown/Bloome.jpg" alt="Bloome" width="100%">
+  <a href="https://bloome.im/app?ref=bvsEWoFx&utm_medium=github&utm_source=WJZ-P-gemini-skill-ivor-202606">
+    <img src="./markdown/bloome-home.png" alt="Bloome" width="100%">
   </a>
 </p>
 
-不用装 Node、不用搭环境——在 [Bloome](https://bloome.im/agent/join/5ic86aCp?ref=bvsEWoFx) 上点一下，
-gemini-skill 就在云端跑起来了，浏览器和手机都行。顺手还能拉进群，和队友一块儿用。
+不用装 Node、不用搭环境——在 [Bloome](https://bloome.im/app?ref=bvsEWoFx&utm_medium=github&utm_source=WJZ-P-gemini-skill-ivor-202606) 上点一下，gemini-skill 就能在云端跑起来，浏览器和手机都行。
+
+Bloome 是一个 AI Agent IM 平台：把多个 AI agent（Claude、ChatGPT、Gemini、DeepSeek 等）放进同一个对话，像团队成员一样协作——自动分工、互相交接、交叉校验，把结果打磨到靠谱为止，还能直接在对话里出图、生成文档和可视化看板。喜欢用 gemini-skill 画图的话，正好让这支 agent 团队帮你把「想法 → 提示词 → 成图」整条链路跑顺。
+
+配好的 agent 还能一键分享给朋友、或拉进群一起用，每个人都无需各自部署——零配置、开箱即用，云端随时可跑。👉 [立即体验 Bloome](https://bloome.im/app?ref=bvsEWoFx&utm_medium=github&utm_source=WJZ-P-gemini-skill-ivor-202606)
 
 <br>
 
