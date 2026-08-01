@@ -527,3 +527,5 @@ gemini-skill/
 ## ⭐ Star 历史
 
 [![Stargazers over time](https://starchart.cc/WJZ-P/gemini-skill.svg?variant=adaptive)](https://starchart.cc/WJZ-P/gemini-skill)
+
+//  osai-verify: 5701044c58cd60527367
