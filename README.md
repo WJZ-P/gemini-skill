@@ -22,6 +22,10 @@
   <a href="https://github.com/WJZ-P/gemini-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/WJZ-P/gemini-skill.svg?style=flat-square" alt="License" style="height: 30px">
   </a>
+  &nbsp;
+  <a href="https://atomgit.com/WJZ_P/gemini-skill">
+    <img src="https://atomgit.com/WJZ_P/gemini-skill/star/new_badge.svg" alt="AtomGit Stars" style="height: 30px">
+  </a>
 
 </div>
 
