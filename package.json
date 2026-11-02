@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "test": "node --test test/generate-image.test.js",
     "mcp": "node src/mcp-server.js",
     "daemon": "node src/daemon/server.js",
     "demo": "node src/demo.js",
