@@ -182,7 +182,7 @@ server.registerTool(
           isError: true,
         };
       }
-      // 检查是否需要新建会话
+      // 必须在上传参考图之前新建会话，避免清空已上传的图片
       if (newSession) {
         await ops.click('newChatBtn');
         await sleep(250);
@@ -206,13 +206,6 @@ server.registerTool(
           }
         }
         console.error(`[mcp] ${referenceImages.length} 张参考图上传完成`);
-      }
-
-
-      // 新建会话（如需）
-      if (newSession) {
-        await ops.click('newChatBtn');
-        await sleep(250);
       }
 
       const result = await ops.generateImage(prompt, { fullSize, timeout });
